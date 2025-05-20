@@ -1,14 +1,14 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Form
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlmodel import Session, select, SQLModel
-from typing import List
+from typing import List, Annotated
 from contextlib import asynccontextmanager
 
 from database import engine, init_db
 from models import User, UserCreate, UserRead
 from auth import get_password_hash, verify_password, verify_email, create_access_token, decode_access_token
 
-oauth2 = OAuth2PasswordBearer(tokenUrl='/login')
+oauth2 = OAuth2PasswordBearer(tokenUrl='/auth')
 
 # startup DB
 @asynccontextmanager
@@ -27,6 +27,7 @@ def get_session():
     with Session(engine) as session:
         yield session
 
+
 # register user
 @app.post('/register', response_model=UserRead)
 def register(user: UserCreate, session: Session = Depends(get_session)):
@@ -44,11 +45,21 @@ def register(user: UserCreate, session: Session = Depends(get_session)):
     return {'id': db_user.id, 'email': db_user.email}
 
 
-# login user
-@app.post('/login')
+# fastapi authorize for /docs
+@app.post('/auth')
 def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
     user = session.exec(select(User).where(User.email == form_data.username)).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail='Invalid Credentials')
+    token = create_access_token(data={'sub': str(user.id)})
+    return {'access_token': token, 'token_type': 'bearer'}
+
+
+# login user
+@app.post('/login')
+def login(email: Annotated[str, Form(...)], password: Annotated[str, Form(...)], session: Session = Depends(get_session)):
+    user = session.exec(select(User).where(User.email == email)).first()
+    if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail='Invalid Credentials')
     token = create_access_token(data={'sub': str(user.id)})
     return {'access_token': token, 'token_type': 'bearer'}
@@ -74,5 +85,8 @@ def read_current_user(current_user: User = Depends(get_current_user)):
 
 # get all users
 @app.get('/users', response_model=List[UserRead])
-def list_users(session: Session = Depends(get_session)):
+def list_users(token: str = Depends(oauth2), session: Session = Depends(get_session)):
+    payload = decode_access_token(token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail='Invalid Token')
     return session.exec(select(User)).all()
