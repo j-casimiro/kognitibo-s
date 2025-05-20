@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from database import engine, init_db
 from models import User, UserCreate, UserRead
-from auth import get_password_hash, verify_password, create_access_token, decode_access_token
+from auth import get_password_hash, verify_password, verify_email, create_access_token, decode_access_token
 
 oauth2 = OAuth2PasswordBearer(tokenUrl='/login')
 
@@ -33,17 +33,21 @@ def register(user: UserCreate, session: Session = Depends(get_session)):
     user_exists = session.exec(select(User).where(User.email == user.email)).first()
     if user_exists:
         raise HTTPException(status_code=400, detail='email already exist')
+    
+    if not verify_email(user.email):
+        raise HTTPException(status_code=400, detail='email is invalid')
+    
     db_user = User(name=user.name, email=user.email, hashed_password=get_password_hash(user.password))
     session.add(db_user)
     session.commit()
     session.refresh(db_user)
-    return db_user
+    return {'id': db_user.id, 'email': db_user.email}
 
 
 # login user
 @app.post('/login')
 def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
-    user = session.exec(select(User).where(User.email == form_data.email)).first()
+    user = session.exec(select(User).where(User.email == form_data.username)).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail='Invalid Credentials')
     token = create_access_token(data={'sub': str(user.id)})
