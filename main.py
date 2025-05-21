@@ -6,7 +6,14 @@ from contextlib import asynccontextmanager
 
 from database import engine, init_db
 from models import User, UserCreate, UserRead
-from auth import get_password_hash, verify_password, verify_email, create_access_token, decode_access_token, is_token_expired
+from auth import (get_password_hash, 
+                  verify_password, 
+                  verify_email,
+                  create_access_token, 
+                  create_refresh_token,
+                  decode_access_token, 
+                  is_access_token_expired, 
+                  is_refresh_token_expired)
 
 oauth2 = OAuth2PasswordBearer(tokenUrl='/auth')
 
@@ -52,7 +59,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = D
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail='Invalid Credentials')
     token = create_access_token(data={'sub': str(user.id)})
-    return {'access_token': token, 'token_type': 'bearer'}
+    refresh_token = create_refresh_token(data={'sub': str(user.id)})
+    return {'access_token': token, 'refresh_token': refresh_token, 'token_type': 'bearer'}
 
 
 # login user
@@ -62,7 +70,8 @@ def login(email: Annotated[str, Form(...)], password: Annotated[str, Form(...)],
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail='Invalid Credentials')
     token = create_access_token(data={'sub': str(user.id)})
-    return {'access_token': token, 'token_type': 'bearer'}
+    refresh_token = create_refresh_token(data={'sub': str(user.id)})
+    return {'access_token': token, 'refresh_token': refresh_token, 'token_type': 'bearer'}
 
 
 # get current user
@@ -70,8 +79,15 @@ def get_current_user(token: str = Depends(oauth2), session: Session = Depends(ge
     payload = decode_access_token(token)
     if payload is None:
         raise HTTPException(status_code=401, detail='Invalid Token')
-    if is_token_expired(token):
-        raise HTTPException(status_code=401, detail='Token Expired')
+    
+    if is_access_token_expired(token):
+        refresh_token = create_access_token(data={'sub': str(payload.get('sub'))})
+        return {'access_token': refresh_token, 'token_type': 'bearer'}
+    
+    if is_refresh_token_expired(token):
+        # user should login again
+        raise HTTPException(status_code=401, detail='Refresh Token Expired')
+    
     user_id = int(payload.get('sub'))
     user = session.get(User, user_id)
     if not user:
@@ -91,6 +107,13 @@ def list_users(token: str = Depends(oauth2), session: Session = Depends(get_sess
     payload = decode_access_token(token)
     if payload is None:
         raise HTTPException(status_code=401, detail='Invalid Token')
-    if is_token_expired(token):
-        raise HTTPException(status_code=401, detail='Token Expired')
+    
+    if is_access_token_expired(token):
+        refresh_token = create_access_token(data={'sub': str(payload.get('sub'))})
+        return {'access_token': refresh_token, 'token_type': 'bearer'}
+    
+    if is_refresh_token_expired(token):
+        # user should login again
+        raise HTTPException(status_code=401, detail='Refresh Token Expired')
+    
     return session.exec(select(User)).all()
