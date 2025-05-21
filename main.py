@@ -1,7 +1,7 @@
-from fastapi import FastAPI, HTTPException, Depends, Form, Cookie, Response
+from fastapi import FastAPI, HTTPException, Depends, Cookie, Response
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlmodel import Session, select, SQLModel
-from typing import List, Annotated, Optional
+from typing import List, Optional
 from contextlib import asynccontextmanager
 
 from database import engine, init_db
@@ -16,7 +16,7 @@ from auth import (get_password_hash,
                   is_access_token_expired, 
                   is_refresh_token_expired)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/auth')
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/login')
 
 # startup DB
 @asynccontextmanager
@@ -53,33 +53,15 @@ def register(user: UserCreate, session: Session = Depends(get_session)):
     return {'id': db_user.id, 'email': db_user.email}
 
 
-# fastapi authorize for /docs
-@app.post('/auth')
-def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
-    user = session.exec(select(User).where(User.email == form_data.username)).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail='Invalid Credentials')
-    
-    access_token = create_access_token(data={'sub': str(user.id)})
-    refresh_token = create_refresh_token(data={'sub': str(user.id)})
-    
-    return {
-        'access_token': access_token,
-        'refresh_token': refresh_token,
-        'token_type': 'bearer'
-    }
-
-
 # login user
 @app.post('/login')
 def login(
     response: Response,
-    email: Annotated[str, Form(...)], 
-    password: Annotated[str, Form(...)], 
+    form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session)
 ):
-    user = session.exec(select(User).where(User.email == email)).first()
-    if not user or not verify_password(password, user.hashed_password):
+    user = session.exec(select(User).where(User.email == form_data.username)).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail='Invalid Credentials')
     
     access_token = create_access_token(data={'sub': str(user.id)})
@@ -97,6 +79,7 @@ def login(
     
     return {
         'access_token': access_token,
+        'refresh_token': refresh_token,
         'token_type': 'bearer'
     }
 
@@ -165,13 +148,14 @@ def refresh_token(
     )
     
     return {
-        'access_token': new_access_token,
+        'new_access_token': new_access_token,
         'token_type': 'bearer'
     }
 
 
 @app.post('/logout')
-def logout(response: Response):
+def logout(response: Response, access_token: str = Depends(oauth2_scheme)):
+
     response.delete_cookie(
         key="refresh_token",
         httponly=True,
