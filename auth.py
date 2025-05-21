@@ -1,21 +1,19 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import jwt, JWTError
-from passlib.context import CryptContext
+import bcrypt
 from dotenv import load_dotenv
 import os
 import re
 
 
 load_dotenv()
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES'))
+ACCESS_TOKEN_EXPIRE_SECONDS = int(os.getenv('ACCESS_TOKEN_EXPIRE_SECONDS'))
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 
-pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
-
 def verify_password(plain_password: str, hashed_password: str):
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 
 def verify_email(email: str):
@@ -23,11 +21,11 @@ def verify_email(email: str):
 
 
 def get_password_hash(password: str):
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    expire = datetime.now() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now() + (expires_delta or timedelta(seconds=ACCESS_TOKEN_EXPIRE_SECONDS))
     data.update({'exp': expire})
     return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
 

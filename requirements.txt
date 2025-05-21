@@ -1,4 +1,4 @@
-'fastapi[standard]'
-'python-jose[cryptography]'
-passlib
+fastapi[standard]
+python-jose[cryptography]
 sqlmodel
+bcrypt
