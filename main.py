@@ -1,7 +1,7 @@
-from fastapi import FastAPI, HTTPException, Depends, Form
+from fastapi import FastAPI, HTTPException, Depends, Form, Cookie, Response
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlmodel import Session, select, SQLModel
-from typing import List, Annotated
+from typing import List, Annotated, Optional
 from contextlib import asynccontextmanager
 
 from database import engine, init_db
@@ -12,10 +12,11 @@ from auth import (get_password_hash,
                   create_access_token, 
                   create_refresh_token,
                   decode_access_token, 
+                  decode_refresh_token,
                   is_access_token_expired, 
                   is_refresh_token_expired)
 
-oauth2 = OAuth2PasswordBearer(tokenUrl='/auth')
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/auth')
 
 # startup DB
 @asynccontextmanager
@@ -58,40 +59,61 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = D
     user = session.exec(select(User).where(User.email == form_data.username)).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail='Invalid Credentials')
-    token = create_access_token(data={'sub': str(user.id)})
+    
+    access_token = create_access_token(data={'sub': str(user.id)})
     refresh_token = create_refresh_token(data={'sub': str(user.id)})
-    return {'access_token': token, 'refresh_token': refresh_token, 'token_type': 'bearer'}
+    
+    return {
+        'access_token': access_token,
+        'refresh_token': refresh_token,
+        'token_type': 'bearer'
+    }
 
 
 # login user
 @app.post('/login')
-def login(email: Annotated[str, Form(...)], password: Annotated[str, Form(...)], session: Session = Depends(get_session)):
+def login(
+    response: Response,
+    email: Annotated[str, Form(...)], 
+    password: Annotated[str, Form(...)], 
+    session: Session = Depends(get_session)
+):
     user = session.exec(select(User).where(User.email == email)).first()
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail='Invalid Credentials')
-    token = create_access_token(data={'sub': str(user.id)})
+    
+    access_token = create_access_token(data={'sub': str(user.id)})
     refresh_token = create_refresh_token(data={'sub': str(user.id)})
-    return {'access_token': token, 'refresh_token': refresh_token, 'token_type': 'bearer'}
+    
+    # Set refresh token in HTTP-only cookie
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=60 * 60 * 24 * 7  # 7 days
+    )
+    
+    return {
+        'access_token': access_token,
+        'token_type': 'bearer'
+    }
 
 
 # get current user
-def get_current_user(token: str = Depends(oauth2), session: Session = Depends(get_session)):
+def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
     payload = decode_access_token(token)
     if payload is None:
-        raise HTTPException(status_code=401, detail='Invalid Token')
+        raise HTTPException(status_code=401, detail='Invalid access token')
     
     if is_access_token_expired(token):
-        refresh_token = create_access_token(data={'sub': str(payload.get('sub'))})
-        return {'access_token': refresh_token, 'token_type': 'bearer'}
-    
-    if is_refresh_token_expired(token):
-        # user should login again
-        raise HTTPException(status_code=401, detail='Refresh Token Expired')
+        raise HTTPException(status_code=401, detail='Access token expired')
     
     user_id = int(payload.get('sub'))
     user = session.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail='User Not Found')
+        raise HTTPException(status_code=404, detail='User not found')
     return user
 
 
@@ -103,17 +125,57 @@ def read_current_user(current_user: User = Depends(get_current_user)):
 
 # get all users
 @app.get('/users', response_model=List[UserRead])
-def list_users(token: str = Depends(oauth2), session: Session = Depends(get_session)):
-    payload = decode_access_token(token)
-    if payload is None:
-        raise HTTPException(status_code=401, detail='Invalid Token')
-    
-    if is_access_token_expired(token):
-        refresh_token = create_access_token(data={'sub': str(payload.get('sub'))})
-        return {'access_token': refresh_token, 'token_type': 'bearer'}
-    
-    if is_refresh_token_expired(token):
-        # user should login again
-        raise HTTPException(status_code=401, detail='Refresh Token Expired')
-    
+def list_users(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     return session.exec(select(User)).all()
+
+
+@app.post('/refresh')
+def refresh_token(
+    response: Response,
+    refresh_token: Optional[str] = Cookie(None),
+    session: Session = Depends(get_session)
+):
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail='Refresh token not found')
+    
+    payload = decode_refresh_token(refresh_token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail='Invalid refresh token')
+
+    if is_refresh_token_expired(refresh_token):
+        raise HTTPException(status_code=401, detail='Refresh token expired')
+    
+    user_id = int(payload.get('sub'))
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+    
+    # Create new tokens
+    new_access_token = create_access_token(data={'sub': str(user.id)})
+    new_refresh_token = create_refresh_token(data={'sub': str(user.id)})
+    
+    # Set new refresh token in HTTP-only cookie
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=60 * 60 * 24 * 7  # 7 days
+    )
+    
+    return {
+        'access_token': new_access_token,
+        'token_type': 'bearer'
+    }
+
+
+@app.post('/logout')
+def logout(response: Response):
+    response.delete_cookie(
+        key="refresh_token",
+        httponly=True,
+        secure=True,
+        samesite="strict"
+    )
+    return {"message": "Successfully logged out"}
