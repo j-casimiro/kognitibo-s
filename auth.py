@@ -7,6 +7,7 @@ import re
 import uuid
 from sqlmodel import Session, select
 from models import BlacklistedToken
+from fastapi import HTTPException
 
 
 load_dotenv()
@@ -131,3 +132,15 @@ def blacklist_token(token: str, session: Session):
         return True
     except JWTError:
         return False
+
+
+def validate_access_token(token: str, session: Session):
+    payload = decode_access_token(token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail='Invalid access token')
+    
+    if is_access_token_expired(token):
+        raise HTTPException(status_code=401, detail='Access token expired')
+    
+    if is_token_blacklisted(token, session):
+        raise HTTPException(status_code=401, detail='Token has been invalidated')

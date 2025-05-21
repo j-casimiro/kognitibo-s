@@ -13,10 +13,9 @@ from auth import (get_password_hash,
                   create_refresh_token,
                   decode_access_token, 
                   decode_refresh_token,
-                  is_access_token_expired, 
                   is_refresh_token_expired,
-                  is_token_blacklisted,
-                  blacklist_token)
+                  blacklist_token,
+                  validate_access_token)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/login')
 
@@ -88,16 +87,8 @@ def login(
 
 # get current user
 def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
+    validate_access_token(token, session)
     payload = decode_access_token(token)
-    if payload is None:
-        raise HTTPException(status_code=401, detail='Invalid access token')
-    
-    if is_access_token_expired(token):
-        raise HTTPException(status_code=401, detail='Access token expired')
-    
-    if is_token_blacklisted(token, session):
-        raise HTTPException(status_code=401, detail='Token has been invalidated')
-    
     user_id = int(payload.get('sub'))
     user = session.get(User, user_id)
     if not user:
@@ -113,16 +104,19 @@ def read_current_user(current_user: User = Depends(get_current_user)):
 
 # get all users
 @app.get('/users', response_model=List[UserRead])
-def list_users(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+def list_users(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
+    validate_access_token(token, session)
     return session.exec(select(User)).all()
 
 
 @app.post('/refresh')
 def refresh_token(
     response: Response,
+    token: str = Depends(oauth2_scheme),
     refresh_token: Optional[str] = Cookie(None),
     session: Session = Depends(get_session)
 ):
+    validate_access_token(token, session)
     if not refresh_token:
         raise HTTPException(status_code=401, detail='Refresh token not found')
     
