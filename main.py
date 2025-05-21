@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Depends, Form, Cookie, Response, Request, Header
+from fastapi import FastAPI, HTTPException, Depends, Form, Cookie, Response
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlmodel import Session, select, SQLModel
 from typing import List, Annotated, Optional
 from contextlib import asynccontextmanager
@@ -14,6 +15,8 @@ from auth import (get_password_hash,
                   decode_refresh_token,
                   is_access_token_expired, 
                   is_refresh_token_expired)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/auth')
 
 # startup DB
 @asynccontextmanager
@@ -50,6 +53,23 @@ def register(user: UserCreate, session: Session = Depends(get_session)):
     return {'id': db_user.id, 'email': db_user.email}
 
 
+# fastapi authorize for /docs
+@app.post('/auth')
+def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+    user = session.exec(select(User).where(User.email == form_data.username)).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail='Invalid Credentials')
+    
+    access_token = create_access_token(data={'sub': str(user.id)})
+    refresh_token = create_refresh_token(data={'sub': str(user.id)})
+    
+    return {
+        'access_token': access_token,
+        'refresh_token': refresh_token,
+        'token_type': 'bearer'
+    }
+
+
 # login user
 @app.post('/login')
 def login(
@@ -77,44 +97,24 @@ def login(
     
     return {
         'access_token': access_token,
-        'token_type': 'bearer',
-        'user': {
-            'id': user.id,
-            'email': user.email,
-            'name': user.name
-        }
+        'token_type': 'bearer'
     }
 
 
 # get current user
-def get_current_user(
-    authorization: Annotated[Optional[str], Header()] = None,
-    session: Session = Depends(get_session)
-):
-    if not authorization:
-        raise HTTPException(
-            status_code=401,
-            detail='Authorization header is missing. Please login first.'
-        )
+def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
+    payload = decode_access_token(token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail='Invalid access token')
     
-    try:
-        # Remove 'Bearer ' prefix if present
-        token = authorization.replace('Bearer ', '') if authorization.startswith('Bearer ') else authorization
-        
-        payload = decode_access_token(token)
-        if payload is None:
-            raise HTTPException(status_code=401, detail='Invalid access token')
-        
-        if is_access_token_expired(token):
-            raise HTTPException(status_code=401, detail='Access token expired')
-        
-        user_id = int(payload.get('sub'))
-        user = session.get(User, user_id)
-        if not user:
-            raise HTTPException(status_code=404, detail='User not found')
-        return user
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    if is_access_token_expired(token):
+        raise HTTPException(status_code=401, detail='Access token expired')
+    
+    user_id = int(payload.get('sub'))
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+    return user
 
 
 # protected route
@@ -166,12 +166,7 @@ def refresh_token(
     
     return {
         'access_token': new_access_token,
-        'token_type': 'bearer',
-        'user': {
-            'id': user.id,
-            'email': user.email,
-            'name': user.name
-        }
+        'token_type': 'bearer'
     }
 
 
