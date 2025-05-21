@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from database import engine, init_db
 from models import User, UserCreate, UserRead
-from auth import get_password_hash, verify_password, verify_email, create_access_token, decode_access_token
+from auth import get_password_hash, verify_password, verify_email, create_access_token, decode_access_token, is_token_expired
 
 oauth2 = OAuth2PasswordBearer(tokenUrl='/auth')
 
@@ -70,6 +70,8 @@ def get_current_user(token: str = Depends(oauth2), session: Session = Depends(ge
     payload = decode_access_token(token)
     if payload is None:
         raise HTTPException(status_code=401, detail='Invalid Token')
+    if is_token_expired(token):
+        raise HTTPException(status_code=401, detail='Token Expired')
     user_id = int(payload.get('sub'))
     user = session.get(User, user_id)
     if not user:
@@ -89,4 +91,6 @@ def list_users(token: str = Depends(oauth2), session: Session = Depends(get_sess
     payload = decode_access_token(token)
     if payload is None:
         raise HTTPException(status_code=401, detail='Invalid Token')
+    if is_token_expired(token):
+        raise HTTPException(status_code=401, detail='Token Expired')
     return session.exec(select(User)).all()
