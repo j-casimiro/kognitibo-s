@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlmodel import Session, select, SQLModel
 from typing import List, Optional
 from contextlib import asynccontextmanager
+from fastapi.middleware.cors import CORSMiddleware
 
 from database import engine, init_db
 from models import User, UserCreate, UserRead
@@ -30,6 +31,18 @@ async def lifespan(app: SQLModel):
 
 # start fastapi app
 app = FastAPI(lifespan=lifespan)
+
+origins = [
+    "http://localhost:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # start session
 def get_session():
@@ -73,7 +86,7 @@ def login(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,
+        # secure=True,
         samesite="strict",
         max_age=60 * 60 * 24 * 7  # 7 days
     )
@@ -141,7 +154,7 @@ def refresh_token(
         key="refresh_token",
         value=new_refresh_token,
         httponly=True,
-        secure=True,
+        # secure=True,
         samesite="strict",
         max_age=60 * 60 * 24 * 7  # 7 days
     )
