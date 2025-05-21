@@ -14,7 +14,9 @@ from auth import (get_password_hash,
                   decode_access_token, 
                   decode_refresh_token,
                   is_access_token_expired, 
-                  is_refresh_token_expired)
+                  is_refresh_token_expired,
+                  is_token_blacklisted,
+                  blacklist_token)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/login')
 
@@ -93,6 +95,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Dep
     if is_access_token_expired(token):
         raise HTTPException(status_code=401, detail='Access token expired')
     
+    if is_token_blacklisted(token, session):
+        raise HTTPException(status_code=401, detail='Token has been invalidated')
+    
     user_id = int(payload.get('sub'))
     user = session.get(User, user_id)
     if not user:
@@ -154,8 +159,16 @@ def refresh_token(
 
 
 @app.post('/logout')
-def logout(response: Response, access_token: str = Depends(oauth2_scheme)):
-
+def logout(
+    response: Response, 
+    access_token: str = Depends(oauth2_scheme),
+    session: Session = Depends(get_session)
+):
+    # Blacklist the access token
+    if not blacklist_token(access_token, session):
+        raise HTTPException(status_code=400, detail='Failed to invalidate token')
+    
+    # Delete the refresh token cookie
     response.delete_cookie(
         key="refresh_token",
         httponly=True,

@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import os
 import re
 import uuid
+from sqlmodel import Session, select
+from models import BlacklistedToken
 
 
 load_dotenv()
@@ -91,3 +93,41 @@ def decode_refresh_token(token: str):
         return payload
     except JWTError:
         return None
+
+
+def is_token_blacklisted(token: str, session: Session) -> bool:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        token_id = payload.get('jti')
+        if not token_id:
+            return True
+        
+        # Check if token is in blacklist
+        blacklisted = session.exec(
+            select(BlacklistedToken).where(BlacklistedToken.token_id == token_id)
+        ).first()
+        
+        return blacklisted is not None
+    except JWTError:
+        return True
+
+
+def blacklist_token(token: str, session: Session):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        token_id = payload.get('jti')
+        exp_timestamp = payload.get('exp')
+        
+        if not token_id or not exp_timestamp:
+            return False
+        
+        # Add token to blacklist
+        blacklisted_token = BlacklistedToken(
+            token_id=token_id,
+            expires_at=datetime.fromtimestamp(exp_timestamp)
+        )
+        session.add(blacklisted_token)
+        session.commit()
+        return True
+    except JWTError:
+        return False

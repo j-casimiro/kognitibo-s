@@ -1,5 +1,6 @@
 from typing import Optional
 from sqlmodel import SQLModel, Field
+from datetime import datetime
 
 
 class User(SQLModel, table=True):
@@ -18,3 +19,10 @@ class UserCreate(SQLModel):
 class UserRead(SQLModel):
     id: int
     email: str
+    
+
+class BlacklistedToken(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token_id: str = Field(index=True)  # JTI (JWT ID) from the token
+    blacklisted_at: datetime = Field(default_factory=datetime.now)
+    expires_at: datetime
