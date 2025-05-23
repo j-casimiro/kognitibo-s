@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, Cookie, Response
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer, HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select, SQLModel
 from typing import List, Optional
 from contextlib import asynccontextmanager
@@ -183,3 +183,30 @@ def logout(
         samesite="strict"
     )
     return {"message": "Successfully logged out"}
+
+
+@app.post('/validate')
+def validate_token(
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
+    session: Session = Depends(get_session)
+):  
+    token = credentials.credentials
+
+    try:
+        validate_access_token(token, session)
+        payload = decode_access_token(token)
+        user_id = int(payload.get('sub'))
+        user = session.get(User, user_id)
+        
+        if not user:
+            raise HTTPException(status_code=404, detail='User not found')
+            
+        return {
+            "valid": True,
+            "user_id": user_id,
+        }
+    except HTTPException as e:
+        return {
+            "valid": False,
+            "detail": e.detail
+        }
