@@ -94,6 +94,7 @@ def login(
     return {
         'access_token': access_token,
         'refresh_token': refresh_token,
+        'user': user,
         'token_type': 'bearer'
     }
 
@@ -125,11 +126,9 @@ def list_users(token: str = Depends(oauth2_scheme), session: Session = Depends(g
 @app.post('/refresh')
 def refresh_token(
     response: Response,
-    token: str = Depends(oauth2_scheme),
     refresh_token: Optional[str] = Cookie(None),
     session: Session = Depends(get_session)
 ):
-    validate_access_token(token, session)
     if not refresh_token:
         raise HTTPException(status_code=401, detail='Refresh token not found')
     
