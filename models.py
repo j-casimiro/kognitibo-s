@@ -1,6 +1,7 @@
 from typing import Optional, List
-from sqlmodel import SQLModel, Field, Enum, Relationship
+from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
+from enum import Enum
 
 # CLASS DEFINITIONS
 class RoleEnum(str, Enum):
@@ -9,7 +10,7 @@ class RoleEnum(str, Enum):
     INSTRUCTOR = "instructor"
 
 
-class QuestionType(str, SQLModel):
+class QuestionType(str, Enum):
     MULTIPLE_CHOICE = 'multiple_choice'
     ANSWER_INPUT = 'answer_input'
 
@@ -17,6 +18,7 @@ class QuestionType(str, SQLModel):
 class UserCreate(SQLModel):
     name: str
     email: str
+    role: RoleEnum
     password: str
 
 

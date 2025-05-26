@@ -60,11 +60,11 @@ def register(user: UserCreate, session: Session = Depends(get_session)):
     if not verify_email(user.email):
         raise HTTPException(status_code=400, detail='email is invalid')
     
-    db_user = User(name=user.name, email=user.email, hashed_password=get_password_hash(user.password))
+    db_user = User(name=user.name, email=user.email, role=user.role, hashed_password=get_password_hash(user.password))
     session.add(db_user)
     session.commit()
     session.refresh(db_user)
-    return {'id': db_user.id, 'email': db_user.email}
+    return {'id': db_user.id, 'email': db_user.email, 'role': db_user.role}
 
 
 # login user
