@@ -22,6 +22,13 @@ class UserCreate(SQLModel):
     password: str
 
 
+class UserUpdate(SQLModel):
+    name: str
+    email: str
+    role: RoleEnum
+    password: str
+
+
 class UserRead(SQLModel):
     id: int
     email: str
